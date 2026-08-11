@@ -559,10 +559,29 @@ export class Floor3dCard extends LitElement {
     this._renderer.render(this._scene, this._camera);
   }
 
+  private _getPointerOffset(e: any): { x: number; y: number } | null {
+    if (typeof e.offsetX === 'number' && typeof e.offsetY === 'number') {
+      return { x: e.offsetX, y: e.offsetY };
+    }
+
+    const touch = e.touches && e.touches.length ? e.touches[0] : e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
+    if (!touch || typeof touch.clientX !== 'number' || typeof touch.clientY !== 'number') {
+      return null;
+    }
+
+    const rect = this._content.getBoundingClientRect();
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+  }
+
   private _getintersect(e: any): THREE.Intersection[] {
+    const offset = this._getPointerOffset(e);
+    if (!offset) {
+      return [];
+    }
+
     const mouse: THREE.Vector2 = new THREE.Vector2();
-    mouse.x = (e.offsetX / this._content.clientWidth) * 2 - 1;
-    mouse.y = -(e.offsetY / this._content.clientHeight) * 2 + 1;
+    mouse.x = (offset.x / this._content.clientWidth) * 2 - 1;
+    mouse.y = -(offset.y / this._content.clientHeight) * 2 + 1;
     const raycaster: THREE.Raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, this._camera);
     const intersects: THREE.Intersection[] = raycaster.intersectObjects(this._raycasting, false);
