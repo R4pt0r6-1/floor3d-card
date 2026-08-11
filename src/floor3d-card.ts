@@ -588,6 +588,37 @@ export class Floor3dCard extends LitElement {
     return intersects;
   }
 
+  private _findConfiguredIntersection(
+    intersects: THREE.Intersection[]
+  ): { intersection: THREE.Intersection; entityIndex: number } | null {
+    if (!this._object_ids || !this._config?.entities) {
+      return null;
+    }
+
+    for (const intersection of intersects) {
+      const objectName = intersection.object?.name;
+      if (!objectName) {
+        continue;
+      }
+
+      for (let i = 0; i < this._config.entities.length; i++) {
+        const entity = this._config.entities[i];
+        if (entity.type3d != 'light' && entity.type3d != 'gesture' && entity.type3d != 'camera') {
+          continue;
+        }
+
+        const entityObjects = this._object_ids[i]?.objects || [];
+        for (let j = 0; j < entityObjects.length; j++) {
+          if (entityObjects[j].object_id == objectName) {
+            return { intersection, entityIndex: i };
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
   private _mousedownEvent(e: any): void {
     this._currentIntersections = this._getintersect(e);
     this._clickStart = Date.now();
@@ -597,37 +628,37 @@ export class Floor3dCard extends LitElement {
   private _firEvent(e: any): void {
     //double click on object to show the name
     const intersects = this._getintersect(e);
-    if (intersects.length > 0 && intersects[0].object.name != '') {
-      if (this._selectionModeEnabled) {
-        this._defaultaction(intersects);
-        return;
-      }
+    if (!intersects.length) {
+      return;
+    }
 
-      this._config.entities.forEach((entity, i) => {
-        for (let j = 0; j < this._object_ids[i].objects.length; j++) {
-          if (this._object_ids[i].objects[j].object_id == intersects[0].object.name) {
-            if (this._config.entities[i].action) {
-              switch (this._config.entities[i].action) {
-                case 'more-info':
-                  fireEvent(this, 'hass-more-info', { entityId: entity.entity });
-                  break;
-                case 'overlay':
-                  if (this._overlay) {
-                    this._setoverlaycontent(entity.entity);
-                  }
-                  break;
-                case 'default':
-                default:
-                  this._defaultaction(intersects);
-              }
-              return;
-            } else {
-              this._defaultaction(intersects);
-              return;
-            }
+    if (this._selectionModeEnabled) {
+      this._defaultaction(intersects);
+      return;
+    }
+
+    const configuredIntersection = this._findConfiguredIntersection(intersects);
+    if (!configuredIntersection) {
+      return;
+    }
+
+    const entity = this._config.entities[configuredIntersection.entityIndex];
+    if (entity.action) {
+      switch (entity.action) {
+        case 'more-info':
+          fireEvent(this, 'hass-more-info', { entityId: entity.entity });
+          break;
+        case 'overlay':
+          if (this._overlay) {
+            this._setoverlaycontent(entity.entity);
           }
-        }
-      });
+          break;
+        case 'default':
+        default:
+          this._defaultaction(intersects);
+      }
+    } else {
+      this._defaultaction(intersects);
     }
   }
 
@@ -639,29 +670,30 @@ export class Floor3dCard extends LitElement {
     // Use intersections from the mousedown event
     const intersects = this._currentIntersections;
     this._currentIntersections = null;
-    if (intersects.length > 0 && intersects[0].object.name != '') {
-      this._config.entities.forEach((entity, i) => {
-        for (let j = 0; j < this._object_ids[i].objects.length; j++) {
-          if (this._object_ids[i].objects[j].object_id == intersects[0].object.name) {
-            if (this._config.entities[i].long_press_action) {
-              switch (this._config.entities[i].long_press_action) {
-                case 'more-info':
-                  fireEvent(this, 'hass-more-info', { entityId: entity.entity });
-                  break;
-                case 'overlay':
-                  if (this._overlay) {
-                    this._setoverlaycontent(entity.entity);
-                  }
-                  break;
-                case 'default':
-                default:
-                  this._defaultaction(intersects);
-              }
-              return;
-            }
+    if (!intersects.length) {
+      return;
+    }
+
+    const configuredIntersection = this._findConfiguredIntersection(intersects);
+    if (!configuredIntersection) {
+      return;
+    }
+
+    const entity = this._config.entities[configuredIntersection.entityIndex];
+    if (entity.long_press_action) {
+      switch (entity.long_press_action) {
+        case 'more-info':
+          fireEvent(this, 'hass-more-info', { entityId: entity.entity });
+          break;
+        case 'overlay':
+          if (this._overlay) {
+            this._setoverlaycontent(entity.entity);
           }
-        }
-      });
+          break;
+        case 'default':
+        default:
+          this._defaultaction(intersects);
+      }
     }
   }
 
@@ -675,8 +707,15 @@ export class Floor3dCard extends LitElement {
   }
 
   private _defaultaction(intersects: THREE.Intersection[]): void {
-    if (intersects.length > 0 && intersects[0].object && intersects[0].object.name != '') {
-      const objectName = intersects[0].object.name;
+    if (intersects.length > 0) {
+      const configuredIntersection = this._selectionModeEnabled ? null : this._findConfiguredIntersection(intersects);
+      const activeIntersection = configuredIntersection?.intersection || intersects[0];
+
+      if (!activeIntersection.object || activeIntersection.object.name == '') {
+        return;
+      }
+
+      const objectName = activeIntersection.object.name;
 
       if (getLovelace().editMode && this._config.editModeNotifications != 'no') {
         window.prompt('Object:', objectName);
@@ -686,7 +725,7 @@ export class Floor3dCard extends LitElement {
       if (this._selectionModeEnabled) {
         // Color objects blue when we click them, so we can build a list of
         // rooms and walls to control a light
-        const object: any = intersects[0].object;
+        const object: any = activeIntersection.object;
         if (!this._selectedmaterial) {
           const newMaterial: any = new THREE.MeshStandardMaterial({ color: 0x7777ff });
           this._selectedmaterial = newMaterial;
@@ -705,6 +744,22 @@ export class Floor3dCard extends LitElement {
         console.log('Selected object IDs:', this._selectedobjects);
         this._render();
         render(this._getSelectionBar(), this._selectionbar);
+        return;
+      }
+
+      if (configuredIntersection) {
+        const entity = this._config.entities[configuredIntersection.entityIndex];
+        if (entity.type3d == 'light') {
+          this._hass.callService(entity.entity.split('.')[0], 'toggle', {
+            entity_id: entity.entity,
+          });
+        } else if (entity.type3d == 'gesture') {
+          this._hass.callService(entity.gesture.domain, entity.gesture.service, {
+            entity_id: entity.entity,
+          });
+        } else if (entity.type3d == 'camera') {
+          fireEvent(this, 'hass-more-info', { entityId: entity.entity });
+        }
         return;
       }
 
