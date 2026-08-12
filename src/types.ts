@@ -75,6 +75,7 @@ export interface Floor3dCardConfig {
   pane: string;
   text: any;
   gesture: any;
+  hitbox: any;
   rotate: any;
   round_per_second: number;
   axis: string;

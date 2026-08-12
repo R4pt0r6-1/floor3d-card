@@ -2192,6 +2192,65 @@ export class Floor3dCard extends LitElement {
     console.warn('Floor3D object not found:', objectId, 'for entity:', entity.entity);
   }
 
+  private _addRuntimeHitbox(entity: Floor3dCardConfig): void {
+    if (!entity.hitbox || !entity.object_id || this._scene.getObjectByName(entity.object_id)) {
+      return;
+    }
+
+    const sourceObjectId =
+      entity.hitbox.source_object_id ||
+      entity.hitbox.object_id ||
+      entity.hitbox.target_object_id ||
+      entity.hitbox.mesh ||
+      entity.hitbox.anchor;
+    const sourceObject: THREE.Object3D = this._scene.getObjectByName(sourceObjectId);
+    if (!sourceObject) {
+      this._warnMissingConfiguredObject(entity, sourceObjectId);
+      return;
+    }
+
+    const box = new THREE.Box3().setFromObject(sourceObject);
+    if (box.isEmpty()) {
+      return;
+    }
+
+    const scale = Number(entity.hitbox.scale) || 1;
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const largest = Math.max(size.x, size.y, size.z, 1);
+    const minEdge = Math.max(largest * 0.25, 8);
+    const scaledSize = new THREE.Vector3(
+      Math.max(size.x * scale, minEdge),
+      Math.max(size.y * scale, minEdge),
+      Math.max(size.z * scale, minEdge),
+    );
+
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const hitbox = new THREE.Mesh(new THREE.BoxGeometry(scaledSize.x, scaledSize.y, scaledSize.z), material);
+    hitbox.name = entity.object_id;
+    hitbox.position.copy(center);
+    hitbox.userData = { level: sourceObject.userData?.level || 0, source_object_id: sourceObjectId, runtime_hitbox: true };
+    hitbox.castShadow = false;
+    hitbox.receiveShadow = false;
+
+    const level = hitbox.userData.level;
+    if (!this._levels[level]) {
+      this._levels[level] = new THREE.Object3D();
+      this._raycastinglevels[level] = [];
+    }
+    this._levels[level].add(hitbox);
+    this._raycastinglevels[level].push(hitbox);
+    if (!this._displaylevels || this._displaylevels[level]) {
+      this._raycasting.push(hitbox);
+    }
+  }
+
   private _onLoaded3DMaterials(materials: MTLLoader.MaterialCreator): void {
     // Materials Loaded Event: last root material passed to the function
     console.log('Material loaded start');
@@ -2242,6 +2301,8 @@ export class Floor3dCard extends LitElement {
             this._slidingdoor.push(null);
             this._slidingdoorposition.push([]);
             if (this._hass.states[entity.entity]) {
+              this._addRuntimeHitbox(entity);
+
               if (entity.type3d == 'rotate') {
                 this._round_per_seconds.push(entity.rotate.round_per_second);
                 this._axis_to_rotate.push(entity.rotate.axis);
