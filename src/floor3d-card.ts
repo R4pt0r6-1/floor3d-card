@@ -114,6 +114,7 @@ export class Floor3dCard extends LitElement {
   private _currentIntersections: THREE.Intersection[];
   private _touchLongPressFired: boolean;
   private _touchStartPoint?: { x: number; y: number };
+  private _touchPointerId?: number;
   private _lastTouchTime?: number;
   private _changeListener: EventListener;
   private _cardObscured: boolean;
@@ -208,6 +209,7 @@ export class Floor3dCard extends LitElement {
   public disconnectedCallback(): void {
     super.disconnectedCallback();
 
+    this._removeCanvasInteractionListeners();
     this._resizeObserver.disconnect();
     window.clearInterval(this._zIndexInterval);
 
@@ -442,10 +444,8 @@ export class Floor3dCard extends LitElement {
   }
 
   public rerender(): void {
+    this._removeCanvasInteractionListeners();
     this._content.removeEventListener('dblclick', this._performActionListener);
-    this._content.removeEventListener('touchstart', this._touchstartEventListener);
-    this._content.removeEventListener('touchend', this._touchendEventListener);
-    this._content.removeEventListener('touchcancel', this._touchendEventListener);
     this._content.removeEventListener('keydown', this._performActionListener);
     this._controls.removeEventListener('change', this._changeListener);
 
@@ -575,12 +575,54 @@ export class Floor3dCard extends LitElement {
     }
 
     const touch = e.touches && e.touches.length ? e.touches[0] : e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
+    if (touch && typeof touch.clientX === 'number' && typeof touch.clientY === 'number') {
+      const rect = this._content.getBoundingClientRect();
+      return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    }
+
+    if (typeof e.clientX === 'number' && typeof e.clientY === 'number') {
+      const rect = this._content.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+
+    return null;
+  }
+
+  private _isTouchPointerEvent(e: any): boolean {
+    return e && e.pointerType === 'touch' && typeof e.pointerId === 'number';
+  }
+
+  private _touchEventPoint(e: any): { x: number; y: number } | null {
+    if (typeof e.clientX === 'number' && typeof e.clientY === 'number') {
+      return { x: e.clientX, y: e.clientY };
+    }
+
+    const touch = e.touches && e.touches.length ? e.touches[0] : e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
     if (!touch || typeof touch.clientX !== 'number' || typeof touch.clientY !== 'number') {
       return null;
     }
 
-    const rect = this._content.getBoundingClientRect();
-    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    return { x: touch.clientX, y: touch.clientY };
+  }
+
+  private _addCanvasInteractionListeners(): void {
+    if (!this._renderer?.domElement) {
+      return;
+    }
+
+    this._renderer.domElement.addEventListener('pointerdown', this._touchstartEventListener);
+    this._renderer.domElement.addEventListener('pointerup', this._touchendEventListener);
+    this._renderer.domElement.addEventListener('pointercancel', this._touchendEventListener);
+  }
+
+  private _removeCanvasInteractionListeners(): void {
+    if (!this._renderer?.domElement) {
+      return;
+    }
+
+    this._renderer.domElement.removeEventListener('pointerdown', this._touchstartEventListener);
+    this._renderer.domElement.removeEventListener('pointerup', this._touchendEventListener);
+    this._renderer.domElement.removeEventListener('pointercancel', this._touchendEventListener);
   }
 
   private _getintersect(e: any): THREE.Intersection[] {
@@ -640,13 +682,14 @@ export class Floor3dCard extends LitElement {
   }
 
   private _touchstartEvent(e: any): void {
-    if (e.touches && e.touches.length > 1) {
+    if (!this._isTouchPointerEvent(e) || this._touchPointerId !== undefined) {
       return;
     }
 
-    const touch = e.touches && e.touches.length ? e.touches[0] : null;
+    const point = this._touchEventPoint(e);
     this._lastTouchTime = Date.now();
-    this._touchStartPoint = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    this._touchPointerId = e.pointerId;
+    this._touchStartPoint = point;
     this._touchLongPressFired = false;
     this._currentIntersections = this._getintersect(e);
     this._clickStart = Date.now();
@@ -657,15 +700,19 @@ export class Floor3dCard extends LitElement {
   }
 
   private _touchendEvent(e: any): void {
+    if (!this._isTouchPointerEvent(e) || e.pointerId !== this._touchPointerId) {
+      return;
+    }
+
     if (this._longpressTimeout) {
       clearTimeout(this._longpressTimeout);
       this._longpressTimeout = null;
     }
 
-    const touch = e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
+    const point = this._touchEventPoint(e);
     const moved =
-      this._touchStartPoint && touch
-        ? Math.hypot(touch.clientX - this._touchStartPoint.x, touch.clientY - this._touchStartPoint.y)
+      this._touchStartPoint && point
+        ? Math.hypot(point.x - this._touchStartPoint.x, point.y - this._touchStartPoint.y)
         : 0;
 
     if (!this._touchLongPressFired && this._clickStart && Date.now() - this._clickStart < 500 && moved < 10) {
@@ -675,6 +722,7 @@ export class Floor3dCard extends LitElement {
     }
 
     this._touchStartPoint = null;
+    this._touchPointerId = undefined;
     this._touchLongPressFired = false;
     this._clickStart = null;
     this._currentIntersections = null;
@@ -725,7 +773,7 @@ export class Floor3dCard extends LitElement {
     // Use intersections from the mousedown event
     const intersects = this._currentIntersections;
     this._currentIntersections = null;
-    if (!intersects.length) {
+    if (!intersects || !intersects.length) {
       return;
     }
 
@@ -1585,9 +1633,6 @@ export class Floor3dCard extends LitElement {
       this._content.addEventListener('mousedown', this._mousedownEventListener);
       this._content.addEventListener('mouseup', this._mouseupEventListener);
       this._content.addEventListener('dblclick', this._performActionListener);
-      this._content.addEventListener('touchstart', this._touchstartEventListener);
-      this._content.addEventListener('touchend', this._touchendEventListener);
-      this._content.addEventListener('touchcancel', this._touchendEventListener);
       this._content.addEventListener('keydown', this._performActionListener);
 
       this._setCamera();
@@ -1598,6 +1643,7 @@ export class Floor3dCard extends LitElement {
 
       this._controls.maxPolarAngle = (0.85 * Math.PI) / 2;
       this._controls.addEventListener('change', this._changeListener);
+      this._addCanvasInteractionListeners();
 
       this._setLookAt();
 
@@ -2142,6 +2188,10 @@ export class Floor3dCard extends LitElement {
     return;
   }
 
+  private _warnMissingConfiguredObject(entity: Floor3dCardConfig, objectId: string): void {
+    console.warn('Floor3D object not found:', objectId, 'for entity:', entity.entity);
+  }
+
   private _onLoaded3DMaterials(materials: MTLLoader.MaterialCreator): void {
     // Materials Loaded Event: last root material passed to the function
     console.log('Material loaded start');
@@ -2424,115 +2474,118 @@ export class Floor3dCard extends LitElement {
                 // Add Virtual Light Objects
                 this._object_ids[i].objects.forEach((element) => {
                   const _foundobject: any = this._scene.getObjectByName(element.object_id);
-                  if (_foundobject) {
-                    const box: THREE.Box3 = new THREE.Box3();
-                    box.setFromObject(_foundobject);
-
-                    let light = new THREE.Light();
-
-                    let x: number, y: number, z: number;
-
-                    x = (box.max.x - box.min.x) / 2 + box.min.x;
-                    z = (box.max.z - box.min.z) / 2 + box.min.z;
-                    y = (box.max.y - box.min.y) / 2 + box.min.y;
-
-                    if (entity.light.vertical_alignment) {
-                      switch (entity.light.vertical_alignment) {
-                        case 'top':
-                          y = box.max.y;
-                          break;
-                        case 'middle':
-                          y = (box.max.y - box.min.y) / 2 + box.min.y;
-                          break;
-                        case 'bottom':
-                          y = box.min.y;
-                          break;
-                      }
-                    }
-
-                    let decay: number;
-                    let distance: number;
-
-                    if (entity.light.decay) {
-                      decay = Number(entity.light.decay);
-                    } else {
-                      decay = 2;
-                    }
-
-                    if (entity.light.distance) {
-                      distance = Number(entity.light.distance);
-                    } else {
-                      distance = 600;
-                    }
-
-                    if (entity.light.light_target || entity.light.light_direction) {
-                      const angle = entity.light.angle ? THREE.MathUtils.degToRad(entity.light.angle) : Math.PI / 10;
-
-                      const slight: THREE.SpotLight = new THREE.SpotLight(
-                        new THREE.Color('#ffffff'),
-                        0,
-                        distance,
-                        angle,
-                        0.5,
-                        decay,
-                      );
-                      //this._bboxmodel.add(slight);
-                      this._levels[_foundobject.userData.level].add(slight);
-                      let target = new THREE.Object3D();
-                      //this._bboxmodel.add(target);
-                      this._levels[_foundobject.userData.level].add(target);
-                      slight.position.set(x, y, z);
-                      if (entity.light.light_direction) {
-                        target.position.set(
-                          x + entity.light.light_direction.x,
-                          y + entity.light.light_direction.y,
-                          z + entity.light.light_direction.z,
-                        );
-                      } else {
-                        const tobj: THREE.Object3D = this._scene.getObjectByName(entity.light.light_target);
-
-                        if (tobj) {
-                          const tbox: THREE.Box3 = new THREE.Box3();
-                          tbox.setFromObject(tobj);
-
-                          let tx: number, ty: number, tz: number;
-
-                          tx = (tbox.max.x - tbox.min.x) / 2 + tbox.min.x;
-                          tz = (tbox.max.z - tbox.min.z) / 2 + tbox.min.z;
-                          ty = (tbox.max.y - tbox.min.y) / 2 + tbox.min.y;
-
-                          target.position.set(tx, ty, tz);
-                        }
-                      }
-
-                      if (target) {
-                        slight.target = target;
-                      }
-
-                      light = slight;
-                    } else {
-                      const plight: THREE.PointLight = new THREE.PointLight(
-                        new THREE.Color('#ffffff'),
-                        0,
-                        distance,
-                        decay,
-                      );
-                      this._levels[_foundobject.userData.level].add(plight);
-                      plight.position.set(x, y, z);
-                      light = plight;
-                    }
-
-                    this._setNoShadowLight(_foundobject);
-                    _foundobject.traverseAncestors(this._setNoShadowLight.bind(this));
-
-                    if (entity.light.shadow == 'no') {
-                      light.castShadow = false;
-                    } else {
-                      light.castShadow = true;
-                      light.shadow.bias = -0.0001;
-                    }
-                    light.name = element.object_id + '_light';
+                  if (!_foundobject) {
+                    this._warnMissingConfiguredObject(entity, element.object_id);
+                    return;
                   }
+
+                  const box: THREE.Box3 = new THREE.Box3();
+                  box.setFromObject(_foundobject);
+
+                  let light = new THREE.Light();
+
+                  let x: number, y: number, z: number;
+
+                  x = (box.max.x - box.min.x) / 2 + box.min.x;
+                  z = (box.max.z - box.min.z) / 2 + box.min.z;
+                  y = (box.max.y - box.min.y) / 2 + box.min.y;
+
+                  if (entity.light.vertical_alignment) {
+                    switch (entity.light.vertical_alignment) {
+                      case 'top':
+                        y = box.max.y;
+                        break;
+                      case 'middle':
+                        y = (box.max.y - box.min.y) / 2 + box.min.y;
+                        break;
+                      case 'bottom':
+                        y = box.min.y;
+                        break;
+                    }
+                  }
+
+                  let decay: number;
+                  let distance: number;
+
+                  if (entity.light.decay) {
+                    decay = Number(entity.light.decay);
+                  } else {
+                    decay = 2;
+                  }
+
+                  if (entity.light.distance) {
+                    distance = Number(entity.light.distance);
+                  } else {
+                    distance = 600;
+                  }
+
+                  if (entity.light.light_target || entity.light.light_direction) {
+                    const angle = entity.light.angle ? THREE.MathUtils.degToRad(entity.light.angle) : Math.PI / 10;
+
+                    const slight: THREE.SpotLight = new THREE.SpotLight(
+                      new THREE.Color('#ffffff'),
+                      0,
+                      distance,
+                      angle,
+                      0.5,
+                      decay,
+                    );
+                    //this._bboxmodel.add(slight);
+                    this._levels[_foundobject.userData.level].add(slight);
+                    let target = new THREE.Object3D();
+                    //this._bboxmodel.add(target);
+                    this._levels[_foundobject.userData.level].add(target);
+                    slight.position.set(x, y, z);
+                    if (entity.light.light_direction) {
+                      target.position.set(
+                        x + entity.light.light_direction.x,
+                        y + entity.light.light_direction.y,
+                        z + entity.light.light_direction.z,
+                      );
+                    } else {
+                      const tobj: THREE.Object3D = this._scene.getObjectByName(entity.light.light_target);
+
+                      if (tobj) {
+                        const tbox: THREE.Box3 = new THREE.Box3();
+                        tbox.setFromObject(tobj);
+
+                        let tx: number, ty: number, tz: number;
+
+                        tx = (tbox.max.x - tbox.min.x) / 2 + tbox.min.x;
+                        tz = (tbox.max.z - tbox.min.z) / 2 + tbox.min.z;
+                        ty = (tbox.max.y - tbox.min.y) / 2 + tbox.min.y;
+
+                        target.position.set(tx, ty, tz);
+                      }
+                    }
+
+                    if (target) {
+                      slight.target = target;
+                    }
+
+                    light = slight;
+                  } else {
+                    const plight: THREE.PointLight = new THREE.PointLight(
+                      new THREE.Color('#ffffff'),
+                      0,
+                      distance,
+                      decay,
+                    );
+                    this._levels[_foundobject.userData.level].add(plight);
+                    plight.position.set(x, y, z);
+                    light = plight;
+                  }
+
+                  this._setNoShadowLight(_foundobject);
+                  _foundobject.traverseAncestors(this._setNoShadowLight.bind(this));
+
+                  if (entity.light.shadow == 'no') {
+                    light.castShadow = false;
+                  } else {
+                    light.castShadow = true;
+                    light.shadow.bias = -0.0001;
+                  }
+                  light.name = element.object_id + '_light';
                 });
               }
               if (entity.type3d == 'color') {
@@ -2540,6 +2593,11 @@ export class Floor3dCard extends LitElement {
                 let j = 0;
                 this._object_ids[i].objects.forEach((element) => {
                   let _foundobject: any = this._scene.getObjectByName(element.object_id);
+                  if (!_foundobject) {
+                    this._warnMissingConfiguredObject(entity, element.object_id);
+                    j = j + 1;
+                    return;
+                  }
                   this._initialmaterial[i][j] = _foundobject.material;
                   if (!Array.isArray(_foundobject.material)) {
                     this._clonedmaterial[i][j] = _foundobject.material.clone();
@@ -2551,6 +2609,10 @@ export class Floor3dCard extends LitElement {
                 // Clone object to print the text
                 this._object_ids[i].objects.forEach((element) => {
                   let _foundobject: any = this._scene.getObjectByName(element.object_id);
+                  if (!_foundobject) {
+                    this._warnMissingConfiguredObject(entity, element.object_id);
+                    return;
+                  }
 
                   let box: THREE.Box3 = new THREE.Box3();
                   box.setFromObject(_foundobject);
