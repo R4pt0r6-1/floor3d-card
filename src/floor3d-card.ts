@@ -107,9 +107,14 @@ export class Floor3dCard extends LitElement {
   private _performActionListener: EventListener;
   private _clickStart?: number;
   private _mousedownEventListener: EventListener;
+  private _touchstartEventListener: EventListener;
+  private _touchendEventListener: EventListener;
   private _longpressTimeout: any;
   private _mouseupEventListener: EventListener;
   private _currentIntersections: THREE.Intersection[];
+  private _touchLongPressFired: boolean;
+  private _touchStartPoint?: { x: number; y: number };
+  private _lastTouchTime?: number;
   private _changeListener: EventListener;
   private _cardObscured: boolean;
   private _card?: HTMLElement;
@@ -136,6 +141,7 @@ export class Floor3dCard extends LitElement {
     super();
 
     this._clickStart = null;
+    this._touchLongPressFired = false;
     this._initialobjectmaterials = {};
     this._selectedobjects = [];
 
@@ -147,6 +153,8 @@ export class Floor3dCard extends LitElement {
       this._performAction(evt);
     };
     this._mousedownEventListener = (evt) => this._mousedownEvent(evt);
+    this._touchstartEventListener = (evt) => this._touchstartEvent(evt);
+    this._touchendEventListener = (evt) => this._touchendEvent(evt);
     this._mouseupEventListener = (evt) => {
       if (this._longpressTimeout) {
         clearTimeout(this._longpressTimeout);
@@ -435,7 +443,9 @@ export class Floor3dCard extends LitElement {
 
   public rerender(): void {
     this._content.removeEventListener('dblclick', this._performActionListener);
-    this._content.removeEventListener('touchstart', this._performActionListener);
+    this._content.removeEventListener('touchstart', this._touchstartEventListener);
+    this._content.removeEventListener('touchend', this._touchendEventListener);
+    this._content.removeEventListener('touchcancel', this._touchendEventListener);
     this._content.removeEventListener('keydown', this._performActionListener);
     this._controls.removeEventListener('change', this._changeListener);
 
@@ -620,9 +630,54 @@ export class Floor3dCard extends LitElement {
   }
 
   private _mousedownEvent(e: any): void {
+    if (this._lastTouchTime && Date.now() - this._lastTouchTime < 700) {
+      return;
+    }
+
     this._currentIntersections = this._getintersect(e);
     this._clickStart = Date.now();
     this._longpressTimeout = setTimeout(() => this._longPressEvent(e), 600);
+  }
+
+  private _touchstartEvent(e: any): void {
+    if (e.touches && e.touches.length > 1) {
+      return;
+    }
+
+    const touch = e.touches && e.touches.length ? e.touches[0] : null;
+    this._lastTouchTime = Date.now();
+    this._touchStartPoint = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    this._touchLongPressFired = false;
+    this._currentIntersections = this._getintersect(e);
+    this._clickStart = Date.now();
+    this._longpressTimeout = setTimeout(() => {
+      this._touchLongPressFired = true;
+      this._longPressEvent(e);
+    }, 600);
+  }
+
+  private _touchendEvent(e: any): void {
+    if (this._longpressTimeout) {
+      clearTimeout(this._longpressTimeout);
+      this._longpressTimeout = null;
+    }
+
+    const touch = e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
+    const moved =
+      this._touchStartPoint && touch
+        ? Math.hypot(touch.clientX - this._touchStartPoint.x, touch.clientY - this._touchStartPoint.y)
+        : 0;
+
+    if (!this._touchLongPressFired && this._clickStart && Date.now() - this._clickStart < 500 && moved < 10) {
+      if (this._config.click == 'yes' || this._selectionModeEnabled) {
+        this._firEvent(e);
+      }
+    }
+
+    this._touchStartPoint = null;
+    this._touchLongPressFired = false;
+    this._clickStart = null;
+    this._currentIntersections = null;
   }
 
   private _firEvent(e: any): void {
@@ -1530,7 +1585,9 @@ export class Floor3dCard extends LitElement {
       this._content.addEventListener('mousedown', this._mousedownEventListener);
       this._content.addEventListener('mouseup', this._mouseupEventListener);
       this._content.addEventListener('dblclick', this._performActionListener);
-      this._content.addEventListener('touchstart', this._performActionListener);
+      this._content.addEventListener('touchstart', this._touchstartEventListener);
+      this._content.addEventListener('touchend', this._touchendEventListener);
+      this._content.addEventListener('touchcancel', this._touchendEventListener);
       this._content.addEventListener('keydown', this._performActionListener);
 
       this._setCamera();
