@@ -746,6 +746,10 @@ export class Floor3dCard extends LitElement {
     }
 
     const entity = this._config.entities[configuredIntersection.entityIndex];
+    if (this._performEntityAction(entity, 'tap', intersects)) {
+      return;
+    }
+
     if (entity.action) {
       switch (entity.action) {
         case 'more-info':
@@ -783,6 +787,10 @@ export class Floor3dCard extends LitElement {
     }
 
     const entity = this._config.entities[configuredIntersection.entityIndex];
+    if (this._performEntityAction(entity, 'hold', intersects)) {
+      return;
+    }
+
     if (entity.long_press_action) {
       switch (entity.long_press_action) {
         case 'more-info':
@@ -798,6 +806,29 @@ export class Floor3dCard extends LitElement {
           this._defaultaction(intersects);
       }
     }
+  }
+
+  private _performEntityAction(entity: any, action: 'tap' | 'hold', intersects: THREE.Intersection[]): boolean {
+    const actionConfig = action == 'hold' ? entity.hold_action : entity.tap_action;
+    if (!actionConfig?.action || !this._hass) {
+      return false;
+    }
+
+    handleAction(this, this._hass, { entity: entity.entity, [`${action}_action`]: actionConfig }, action);
+    if (actionConfig.action == 'more-info' || actionConfig.action == 'navigate' || actionConfig.action == 'url') {
+      return true;
+    }
+
+    if (actionConfig.action == 'call-service' || actionConfig.action == 'fire-dom-event' || actionConfig.action == 'toggle') {
+      return true;
+    }
+
+    if (actionConfig.action == 'none') {
+      return true;
+    }
+
+    this._defaultaction(intersects);
+    return true;
   }
 
   private _setoverlaycontent(entity_id: string): void {
