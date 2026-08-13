@@ -110,12 +110,16 @@ export class Floor3dCard extends LitElement {
   private _touchstartEventListener: EventListener;
   private _touchendEventListener: EventListener;
   private _longpressTimeout: any;
+  private _tapTimeout: any;
+  private _pendingTap: { event: any; intersects: THREE.Intersection[] };
   private _mouseupEventListener: EventListener;
   private _currentIntersections: THREE.Intersection[];
   private _touchLongPressFired: boolean;
   private _touchStartPoint?: { x: number; y: number };
   private _touchPointerId?: number;
   private _lastTouchTime?: number;
+  private _lastTapTime?: number;
+  private _lastTapObjectName?: string;
   private _changeListener: EventListener;
   private _cardObscured: boolean;
   private _card?: HTMLElement;
@@ -165,7 +169,7 @@ export class Floor3dCard extends LitElement {
       // Handle mouse click events that are less than 200ms in duration
       if (this._clickStart && Date.now() - this._clickStart < 200) {
         if (this._config.click == 'yes' || this._selectionModeEnabled) {
-          this._firEvent(evt);
+          this._tapEvent(evt);
         }
       }
 
@@ -210,6 +214,11 @@ export class Floor3dCard extends LitElement {
     super.disconnectedCallback();
 
     this._removeCanvasInteractionListeners();
+    if (this._tapTimeout) {
+      clearTimeout(this._tapTimeout);
+      this._tapTimeout = null;
+      this._pendingTap = undefined;
+    }
     this._resizeObserver.disconnect();
     window.clearInterval(this._zIndexInterval);
 
@@ -717,7 +726,7 @@ export class Floor3dCard extends LitElement {
 
     if (!this._touchLongPressFired && this._clickStart && Date.now() - this._clickStart < 500 && moved < 10) {
       if (this._config.click == 'yes' || this._selectionModeEnabled) {
-        this._firEvent(e);
+        this._tapEvent(e);
       }
     }
 
@@ -728,9 +737,60 @@ export class Floor3dCard extends LitElement {
     this._currentIntersections = null;
   }
 
-  private _firEvent(e: any): void {
-    //double click on object to show the name
+  private _tapEvent(e: any): void {
     const intersects = this._getintersect(e);
+    if (!intersects.length) {
+      return;
+    }
+
+    if (this._selectionModeEnabled) {
+      this._firEvent(e, 'tap', intersects);
+      return;
+    }
+
+    const configuredIntersection = this._findConfiguredIntersection(intersects);
+    const entity = configuredIntersection ? this._config.entities[configuredIntersection.entityIndex] : null;
+    if (!entity?.double_tap_action?.action) {
+      this._firEvent(e, 'tap', intersects);
+      return;
+    }
+
+    const now = Date.now();
+    const objectName = configuredIntersection?.intersection.object?.name || intersects[0]?.object?.name || '';
+    if (this._tapTimeout && this._lastTapObjectName == objectName && now - (this._lastTapTime || 0) < 350) {
+      clearTimeout(this._tapTimeout);
+      this._tapTimeout = null;
+      this._lastTapTime = undefined;
+      this._lastTapObjectName = undefined;
+      this._pendingTap = undefined;
+      this._firEvent(e, 'double_tap', intersects);
+      return;
+    }
+
+    if (this._tapTimeout) {
+      clearTimeout(this._tapTimeout);
+      if (this._pendingTap) {
+        this._firEvent(this._pendingTap.event, 'tap', this._pendingTap.intersects);
+      }
+    }
+    this._lastTapTime = now;
+    this._lastTapObjectName = objectName;
+    this._pendingTap = { event: e, intersects };
+    this._tapTimeout = setTimeout(() => {
+      this._tapTimeout = null;
+      this._lastTapTime = undefined;
+      this._lastTapObjectName = undefined;
+      const pending = this._pendingTap;
+      this._pendingTap = undefined;
+      if (pending) {
+        this._firEvent(pending.event, 'tap', pending.intersects);
+      }
+    }, 300);
+  }
+
+  private _firEvent(e: any, action: 'tap' | 'double_tap' = 'tap', currentIntersections?: THREE.Intersection[]): void {
+    //double click on object to show the name
+    const intersects = currentIntersections || this._getintersect(e);
     if (!intersects.length) {
       return;
     }
@@ -746,7 +806,7 @@ export class Floor3dCard extends LitElement {
     }
 
     const entity = this._config.entities[configuredIntersection.entityIndex];
-    if (this._performEntityAction(entity, 'tap', intersects)) {
+    if (this._performEntityAction(entity, action, intersects)) {
       return;
     }
 
@@ -773,6 +833,11 @@ export class Floor3dCard extends LitElement {
   private _longPressEvent(_e: any): void {
     if (this._clickStart == null) return;
     this._clickStart = null;
+    if (this._tapTimeout) {
+      clearTimeout(this._tapTimeout);
+      this._tapTimeout = null;
+      this._pendingTap = undefined;
+    }
 
     // Use intersections from the mousedown event
     const intersects = this._currentIntersections;
@@ -808,13 +873,14 @@ export class Floor3dCard extends LitElement {
     }
   }
 
-  private _performEntityAction(entity: any, action: 'tap' | 'hold', intersects: THREE.Intersection[]): boolean {
-    const actionConfig = action == 'hold' ? entity.hold_action : entity.tap_action;
+  private _performEntityAction(entity: any, action: 'tap' | 'hold' | 'double_tap', intersects: THREE.Intersection[]): boolean {
+    const actionConfig = action == 'hold' ? entity.hold_action : action == 'double_tap' ? entity.double_tap_action : entity.tap_action;
     if (!actionConfig?.action || !this._hass) {
       return false;
     }
 
-    handleAction(this, this._hass, { entity: entity.entity, [`${action}_action`]: actionConfig }, action);
+    const actionKey = action == 'double_tap' ? 'double_tap_action' : `${action}_action`;
+    handleAction(this, this._hass, { entity: entity.entity, [actionKey]: actionConfig }, action);
     if (actionConfig.action == 'more-info' || actionConfig.action == 'navigate' || actionConfig.action == 'url') {
       return true;
     }
