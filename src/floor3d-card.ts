@@ -649,14 +649,41 @@ export class Floor3dCard extends LitElement {
     return intersects;
   }
 
+  private _actionPriority(entity: any, action: 'tap' | 'hold' | 'double_tap'): number {
+    const actionConfig = action == 'hold' ? entity.hold_action : action == 'double_tap' ? entity.double_tap_action : entity.tap_action;
+    const configuredAction = actionConfig?.action;
+    if (configuredAction) {
+      if (configuredAction == 'navigate') return 100;
+      if (configuredAction == 'call-service' || configuredAction == 'fire-dom-event' || configuredAction == 'url') return 90;
+      if (configuredAction == 'more-info') return 80;
+      if (configuredAction == 'toggle') return 70;
+      if (configuredAction == 'none') return 60;
+    }
+    if (action == 'tap' && entity.action) {
+      if (entity.action == 'navigate') return 100;
+      if (entity.action == 'call-service' || entity.action == 'fire-dom-event' || entity.action == 'url') return 90;
+      if (entity.action == 'more-info') return 80;
+      if (entity.action == 'toggle') return 70;
+      if (entity.action == 'none') return 60;
+    }
+    if (action == 'hold' && entity.long_press_action) {
+      if (entity.long_press_action == 'more-info') return 80;
+      if (entity.long_press_action == 'none') return 60;
+    }
+    return 0;
+  }
+
   private _findConfiguredIntersection(
-    intersects: THREE.Intersection[]
+    intersects: THREE.Intersection[],
+    action: 'tap' | 'hold' | 'double_tap' = 'tap'
   ): { intersection: THREE.Intersection; entityIndex: number } | null {
     if (!this._object_ids || !this._config?.entities) {
       return null;
     }
 
-    for (const intersection of intersects) {
+    let bestMatch: { intersection: THREE.Intersection; entityIndex: number; priority: number; order: number } | null = null;
+    for (let order = 0; order < intersects.length; order++) {
+      const intersection = intersects[order];
       const objectName = intersection.object?.name;
       if (!objectName) {
         continue;
@@ -671,13 +698,16 @@ export class Floor3dCard extends LitElement {
         const entityObjects = this._object_ids[i]?.objects || [];
         for (let j = 0; j < entityObjects.length; j++) {
           if (entityObjects[j].object_id == objectName) {
-            return { intersection, entityIndex: i };
+            const priority = this._actionPriority(entity, action);
+            if (!bestMatch || priority > bestMatch.priority || (priority == bestMatch.priority && order < bestMatch.order)) {
+              bestMatch = { intersection, entityIndex: i, priority, order };
+            }
           }
         }
       }
     }
 
-    return null;
+    return bestMatch ? { intersection: bestMatch.intersection, entityIndex: bestMatch.entityIndex } : null;
   }
 
   private _mousedownEvent(e: any): void {
@@ -748,7 +778,7 @@ export class Floor3dCard extends LitElement {
       return;
     }
 
-    const configuredIntersection = this._findConfiguredIntersection(intersects);
+    const configuredIntersection = this._findConfiguredIntersection(intersects, 'tap');
     const entity = configuredIntersection ? this._config.entities[configuredIntersection.entityIndex] : null;
     if (!entity?.double_tap_action?.action) {
       this._firEvent(e, 'tap', intersects);
@@ -800,7 +830,7 @@ export class Floor3dCard extends LitElement {
       return;
     }
 
-    const configuredIntersection = this._findConfiguredIntersection(intersects);
+    const configuredIntersection = this._findConfiguredIntersection(intersects, action);
     if (!configuredIntersection) {
       return;
     }
@@ -874,7 +904,7 @@ export class Floor3dCard extends LitElement {
       return;
     }
 
-    const configuredIntersection = this._findConfiguredIntersection(intersects);
+    const configuredIntersection = this._findConfiguredIntersection(intersects, 'hold');
     if (!configuredIntersection) {
       return;
     }
@@ -981,6 +1011,20 @@ export class Floor3dCard extends LitElement {
 
       if (configuredIntersection) {
         const entity = this._config.entities[configuredIntersection.entityIndex];
+        if (this._performEntityAction(entity, 'tap', intersects)) {
+          return;
+        }
+        if (entity.action == 'navigate') {
+          this._navigate(entity.navigation_path);
+          return;
+        }
+        if (entity.action == 'more-info') {
+          fireEvent(this, 'hass-more-info', { entityId: entity.entity });
+          return;
+        }
+        if (entity.action == 'none') {
+          return;
+        }
         if (entity.type3d == 'light') {
           this._hass.callService(entity.entity.split('.')[0], 'toggle', {
             entity_id: entity.entity,
