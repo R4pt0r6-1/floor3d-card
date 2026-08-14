@@ -815,6 +815,16 @@ export class Floor3dCard extends LitElement {
         case 'more-info':
           fireEvent(this, 'hass-more-info', { entityId: entity.entity });
           break;
+        case 'navigate':
+          this._navigate(entity.navigation_path);
+          break;
+        case 'url':
+        case 'call-service':
+        case 'fire-dom-event':
+        case 'toggle':
+        case 'none':
+          handleAction(this, this._hass, { entity: entity.entity, tap_action: this._legacyActionConfig(entity) }, 'tap');
+          break;
         case 'overlay':
           if (this._overlay) {
             this._setoverlaycontent(entity.entity);
@@ -827,6 +837,24 @@ export class Floor3dCard extends LitElement {
     } else {
       this._defaultaction(intersects);
     }
+  }
+
+  private _legacyActionConfig(entity: any): any {
+    const actionConfig: any = { action: entity.action };
+    ['navigation_path', 'url_path', 'service', 'service_data', 'target', 'confirmation'].forEach((key) => {
+      if (entity[key] !== undefined) {
+        actionConfig[key] = entity[key];
+      }
+    });
+    return actionConfig;
+  }
+
+  private _navigate(path: string): void {
+    if (!path) {
+      return;
+    }
+    history.pushState(null, '', path);
+    fireEvent(window as any, 'location-changed', { replace: false });
   }
 
   // Hold down the mouse button on object
@@ -880,6 +908,10 @@ export class Floor3dCard extends LitElement {
     }
 
     const actionKey = action == 'double_tap' ? 'double_tap_action' : `${action}_action`;
+    if (actionConfig.action == 'navigate') {
+      this._navigate(actionConfig.navigation_path);
+      return true;
+    }
     handleAction(this, this._hass, { entity: entity.entity, [actionKey]: actionConfig }, action);
     if (actionConfig.action == 'more-info' || actionConfig.action == 'navigate' || actionConfig.action == 'url') {
       return true;
@@ -1016,7 +1048,7 @@ export class Floor3dCard extends LitElement {
 
   private _performAction(e: any): void {
     const intersects = this._getintersect(e);
-    this._defaultaction(intersects);
+    this._firEvent(e, 'tap', intersects);
   }
 
   private _zIndexChecker(): void {
