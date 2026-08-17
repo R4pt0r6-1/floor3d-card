@@ -10,6 +10,7 @@ import {
   navigate as haNavigate,
 } from 'custom-card-helpers'; // This is a community maintained npm module with common helper functions/types
 import './editor';
+import './floor3d-action-tile';
 import { HassEntity } from 'home-assistant-js-websocket';
 import { createConfigArray, createObjectGroupConfigArray, getLovelace } from './helpers';
 import type { Floor3dCardConfig } from './types';
