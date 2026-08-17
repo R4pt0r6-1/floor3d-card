@@ -7,6 +7,7 @@ import {
   handleAction,
   LovelaceCardEditor,
   fireEvent,
+  navigate as haNavigate,
 } from 'custom-card-helpers'; // This is a community maintained npm module with common helper functions/types
 import './editor';
 import { HassEntity } from 'home-assistant-js-websocket';
@@ -883,8 +884,7 @@ export class Floor3dCard extends LitElement {
     if (!path) {
       return;
     }
-    history.pushState(null, '', path);
-    fireEvent(window as any, 'location-changed', { replace: false });
+    haNavigate(this, path);
   }
 
   // Hold down the mouse button on object
@@ -1029,7 +1029,7 @@ export class Floor3dCard extends LitElement {
           this._hass.callService(entity.entity.split('.')[0], 'toggle', {
             entity_id: entity.entity,
           });
-        } else if (entity.type3d == 'gesture') {
+        } else if (entity.type3d == 'gesture' && entity.gesture) {
           this._hass.callService(entity.gesture.domain, entity.gesture.service, {
             entity_id: entity.entity,
           });
@@ -1047,7 +1047,7 @@ export class Floor3dCard extends LitElement {
                 this._hass.callService(entity.entity.split('.')[0], 'toggle', {
                   entity_id: entity.entity,
                 });
-              } else if (entity.type3d == 'gesture') {
+              } else if (entity.type3d == 'gesture' && entity.gesture) {
                 this._hass.callService(entity.gesture.domain, entity.gesture.service, {
                   entity_id: entity.entity,
                 });
