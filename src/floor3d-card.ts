@@ -487,6 +487,10 @@ export class Floor3dCard extends LitElement {
     root = (root && root.shadowRoot) || root;
     root = root && root.querySelector('hui-view');
 
+    if (!root) {
+      return false;
+    }
+
     const panel: [] = root.getElementsByTagName('HUI-PANEL-VIEW');
 
     if (panel) {
@@ -514,6 +518,10 @@ export class Floor3dCard extends LitElement {
     root = root && root.querySelector('hui-root');
     root = (root && root.shadowRoot) || root;
     root = root && root.querySelector('hui-view');
+
+    if (!root) {
+      return false;
+    }
 
     const sidebar: [] = root.getElementsByTagName('HUI-SIDEBAR-VIEW');
 
@@ -1103,7 +1111,9 @@ export class Floor3dCard extends LitElement {
     let topElement = this._haShadowRoot.elementFromPoint(centerX, centerY);
 
     if (topElement != null) {
-      let topZIndex = this._getZIndex(topElement.shadowRoot.firstElementChild);
+      const topRoot = (topElement as HTMLElement).shadowRoot;
+      const topChild = topRoot?.firstElementChild || topElement;
+      let topZIndex = this._getZIndex(topChild);
       let myZIndex = this._getZIndex(this._card);
 
       if (myZIndex != topZIndex) {
@@ -1694,9 +1704,7 @@ export class Floor3dCard extends LitElement {
             this._config.mtlfile,
             this._onLoaded3DMaterials.bind(this),
             this._onLoadMaterialProgress.bind(this),
-            function (error: ErrorEvent): void {
-              throw new Error(error.error);
-            },
+            this._handleModelLoadError.bind(this, 'MTL material load'),
           );
         } else {
           const objLoader: OBJLoader = new OBJLoader();
@@ -1704,9 +1712,7 @@ export class Floor3dCard extends LitElement {
             path + this._config.objfile,
             this._onLoaded3DModel.bind(this),
             this._onLoadObjectProgress.bind(this),
-            function (error: ErrorEvent): void {
-              throw new Error(error.error);
-            },
+            this._handleModelLoadError.bind(this, 'OBJ model load'),
           );
         }
         this._modeltype = ModelSource.OBJ;
@@ -1717,9 +1723,7 @@ export class Floor3dCard extends LitElement {
           this._config.objfile,
           this._onLoadedGLTF3DModel.bind(this),
           this._onloadedGLTF3DProgress.bind(this),
-          function (error: ErrorEvent): void {
-            throw new Error(error.error);
-          },
+          this._handleModelLoadError.bind(this, 'GLB model load'),
         );
         this._modeltype = ModelSource.GLB;
       }
@@ -1731,6 +1735,18 @@ export class Floor3dCard extends LitElement {
 
   private _onLoadError(event: ErrorEvent): void {
     this._showError(event.error);
+  }
+
+  private _handleModelLoadError(context: string, error: ErrorEvent | Error | unknown): void {
+    const detail =
+      error instanceof Error
+        ? error.message
+        : (error as ErrorEvent)?.error?.message || (error as ErrorEvent)?.message || String(error || 'Unknown error');
+    const message = `${context} failed: ${detail}`;
+    console.error('floor3d-card:', message, error);
+    if (this._content) {
+      this._content.innerText = message;
+    }
   }
 
   private _onloadedGLTF3DProgress(_progress: ProgressEvent): void {
@@ -1786,7 +1802,11 @@ export class Floor3dCard extends LitElement {
       this._renderer.shadowMap.enabled = false;
     }
 
-    this._add3dObjects();
+    try {
+      this._add3dObjects();
+    } catch (error) {
+      console.warn('floor3d-card: continuing without some configured 3D entity bindings', error);
+    }
 
     console.log('Object loaded end');
 
@@ -2441,9 +2461,7 @@ export class Floor3dCard extends LitElement {
       path + this._config.objfile,
       this._onLoaded3DModel.bind(this),
       this._onLoadObjectProgress.bind(this),
-      function (error: ErrorEvent): void {
-        throw new Error(error.error);
-      },
+      this._handleModelLoadError.bind(this, 'OBJ model load'),
     );
     console.log('Material loaded end');
   }
@@ -2863,8 +2881,7 @@ export class Floor3dCard extends LitElement {
               }
             }
           } catch (error) {
-            console.log(error);
-            throw new Error('Object issue for Entity: <' + entity.entity + '> ' + error);
+            console.warn('floor3d-card: skipping configured object for entity <' + entity.entity + '>', error);
           }
         });
         this._config.entities.forEach((entity, i) => {
@@ -2893,8 +2910,7 @@ export class Floor3dCard extends LitElement {
       }
       console.log('Add 3D Object End');
     } catch (e) {
-      console.log(e);
-      throw new Error('Error adding 3D Object: ' + e);
+      console.warn('floor3d-card: error adding one or more 3D objects', e);
     }
   }
 
