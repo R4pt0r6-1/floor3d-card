@@ -12,7 +12,6 @@ import {
 import './editor';
 import './floor3d-action-tile';
 import './floor3d-multi-action-card';
-import './floor3d-poster-action-card';
 import { HassEntity } from 'home-assistant-js-websocket';
 import { createConfigArray, createObjectGroupConfigArray, getLovelace } from './helpers';
 import type { Floor3dCardConfig } from './types';
