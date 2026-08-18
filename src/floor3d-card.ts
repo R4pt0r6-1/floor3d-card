@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/ban-types */
 import { LitElement, html, TemplateResult, css, PropertyValues, CSSResultGroup, render } from 'lit';
-import { property, customElement, state } from 'lit/decorators';
+import { property, state } from 'lit/decorators';
 import {
   HomeAssistant,
   ActionHandlerEvent,
@@ -10,8 +10,6 @@ import {
   navigate as haNavigate,
 } from 'custom-card-helpers'; // This is a community maintained npm module with common helper functions/types
 import './editor';
-import './floor3d-action-tile';
-import './floor3d-multi-action-card';
 import { HassEntity } from 'home-assistant-js-websocket';
 import { createConfigArray, createObjectGroupConfigArray, getLovelace } from './helpers';
 import type { Floor3dCardConfig } from './types';
@@ -38,18 +36,16 @@ console.info(
 // This puts your card into the UI card picker dialog
 (window as any).customCards = (window as any).customCards || [];
 (window as any).customCards.push({
-  type: 'floor3d-card',
-  name: 'Floor3d Card',
+  type: 'gamma-floor3d-card',
+  name: 'Gamma Floor3D Card',
   preview: true,
-  description: 'A custom card to visualize and activate entities in a live 3D model',
+  description: 'A patched Floor3D card for Gamma floorplan dashboards',
 });
 class ModelSource {
   public static OBJ = 0;
   public static GLB = 1;
 }
 
-// TODO Name your custom element
-@customElement('floor3d-card')
 export class Floor3dCard extends LitElement {
   private _scene?: THREE.Scene;
   private _camera?: THREE.PerspectiveCamera;
@@ -3727,4 +3723,8 @@ export class Floor3dCard extends LitElement {
   static get styles(): CSSResultGroup {
     return css``;
   }
+}
+
+if (!customElements.get('gamma-floor3d-card')) {
+  customElements.define('gamma-floor3d-card', Floor3dCard);
 }
